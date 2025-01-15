@@ -1,0 +1,13 @@
+[package]
+name = "Barclay_OS"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
