@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use core::{arch::asm, ffi::c_void, panic::PanicInfo};
+use core::{any::Any, arch::asm, ffi::c_void, panic::PanicInfo};
 
 extern "C" {
     static mut __bss: u8;
@@ -37,6 +37,71 @@ fn putchar(ch: char) -> Result<u64, u64> {
     sbi_call(ch as u64, 0, 0, 0, 0, 0, 0, 1)
 }
 
+fn print(text: &str) {
+    for ch in text.chars() {
+        let _ = putchar(ch);
+    }
+}
+
+fn println(text: &str) {
+    print(text);
+    let _ = putchar('\n');
+}
+
+trait Printable {
+    fn stringify(&self) -> &str;
+}
+
+impl Printable for str {
+    fn stringify(&self) -> &str {
+        return self;
+    }
+}
+
+impl Printable for u64 {
+    fn stringify(&self) -> &str {
+        let thing = "(imagine there's an integer here)";
+        return thing;
+    }
+}
+
+fn printf_butt_ugly(format_str: &str, values: &mut [&impl Printable]) {
+    let mut i = 0;
+    let mut format_chars = format_str.chars();
+
+    loop {
+        match format_chars.next() {
+            None => break,
+            Some(ch) => {
+                if ch == '%' {
+                    match format_chars.next() {
+                        None => break,
+                        Some(_) => {
+                            let value = values[i];
+                            let nice_val = value.stringify();
+                            print(nice_val);
+                            i += 1;
+                        }
+                    }
+                } else {
+                    let _ = putchar(ch);
+                }
+            }
+        }
+    }
+}
+
+macro_rules! printf {
+    ($e:expr) => {{
+        print($e);
+    }};
+
+    ($e:expr, $($es:expr),+) => {{
+        printf! { $e }
+        printf! { $($es),+ }
+    }};
+}
+
 fn memset(buf: *mut c_void, c: u8, n: usize) {
     let p = buf as *mut u8;
 
@@ -48,9 +113,11 @@ fn memset(buf: *mut c_void, c: u8, n: usize) {
 }
 
 fn kernel_main() -> ! {
-    for ch in "Hello, World!\n".chars() {
-        let _ = putchar(ch);
-    }
+    printf!("thing", "thang", "thangin", "thung");
+    let printf_butt_ugly("Put that %s away");
+    println("peepee");
+    println("poopoo");
+    print("Hello, World!\n");
 
     unsafe {
         asm!("wfi");
