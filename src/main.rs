@@ -1,34 +1,59 @@
 #![no_main]
 #![no_std]
 
-use core::arch::asm;
-use core::ffi::c_void;
-use core::panic::PanicInfo;
+use core::{arch::asm, ffi::c_void, panic::PanicInfo};
 
 extern "C" {
-    static __bss: *mut u8;
-    static __bss_end: *mut u8;
-    static __stack_top: *mut u8;
+    static mut __bss: u8;
+    static mut __bss_end: u8;
+    static mut __stack_top: u8;
 }
 
-fn memset(buf: *mut c_void, c: u8, n: usize) {
-    let mut p: *mut u8 = buf as *mut u8;
-    let mut z = n;
+fn sbi_call(
+    arg0: u64,
+    arg1: u64,
+    arg2: u64,
+    arg3: u64,
+    arg4: u64,
+    arg5: u64,
+    fid: u64,
+    eid: u64,
+) -> Result<u64, u64> {
+    let mut a0 = arg0;
+    let mut a1 = arg1;
 
-    while z > 0 {
-        unsafe {
-            *p = c;
-            p = p.add(1);
+    unsafe {
+        asm!("ecall", inlateout("a0") a0, inlateout("a1") a1, in("a2") arg2, in("a3") arg3, in("a4") arg4, in("a5") arg5, in("a6") fid, in("a7") eid);
+
+        if a0 == 0 {
+            return Ok(a1);
         }
 
-        z -= 1;
+        Err(a0)
     }
 }
 
-fn kernel_main() {
+fn putchar(ch: char) -> Result<u64, u64> {
+    sbi_call(ch as u64, 0, 0, 0, 0, 0, 0, 1)
+}
+
+fn memset(buf: *mut c_void, c: u8, n: usize) {
+    let p = buf as *mut u8;
+
     unsafe {
-        let number_of_u8s = __bss_end.offset_from(__bss);
-        memset(__bss as *mut c_void, 0, number_of_u8s as usize);
+        for i in 0..n {
+            *p.add(i) = c;
+        }
+    }
+}
+
+fn kernel_main() -> ! {
+    for ch in "Hello, World!\n".chars() {
+        let _ = putchar(ch);
+    }
+
+    unsafe {
+        asm!("wfi");
     }
 
     loop {}
@@ -38,11 +63,12 @@ fn kernel_main() {
 #[link_section = ".text.boot"]
 pub extern "C" fn _start() -> ! {
     unsafe {
-        asm!("mv sp, {stack_top}", stack_top = in(reg) __stack_top);
-        asm!("j kernel_main");
+        asm!("mv sp, {stack_top}", stack_top = in(reg) &raw const __stack_top);
+        let u8_count = (&raw const __bss_end).offset_from(&raw const __bss);
+        memset(__bss as *mut c_void, 0, u8_count as usize);
     }
 
-    loop {}
+    kernel_main();
 }
 
 #[panic_handler]

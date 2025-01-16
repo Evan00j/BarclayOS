@@ -1,9 +1,9 @@
-ENTRY(boot)
+ENTRY(_start)
 
 SECTIONS {
     . = 0x80200000;
 
-    .text :{
+    .text : {
         KEEP(*(.text.boot));
         *(.text .text.*);
     }
