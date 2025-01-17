@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 
-use core::{any::Any, arch::asm, ffi::c_void, panic::PanicInfo};
+use core::{any::Any, arch::asm, ffi::c_void, panic::PanicInfo, str::from_utf8_unchecked};
 
 extern "C" {
     static mut __bss: u8;
@@ -60,8 +60,26 @@ impl Printable for str {
 
 impl Printable for u64 {
     fn stringify(&self) -> &str {
-        let thing = "(imagine there's an integer here)";
-        return thing;
+        const MAX_DIGITS: usize = 19;
+        //create a static mut buffer to store the string since we do not have heap allocation
+        static mut BUFFER: [u8; MAX_DIGITS] = [0; MAX_DIGITS];
+        unsafe {
+            let mut num = *self;
+            let mut end = MAX_DIGITS;
+
+            if num == 0 {
+                BUFFER[MAX_DIGITS - 1] = b'0'; // Place '0' as the last digit
+                return core::str::from_utf8_unchecked(&BUFFER[MAX_DIGITS - 1..MAX_DIGITS]);
+            }
+
+            while num > 0 {
+                end -= 1;
+                BUFFER[end] = b'0' + (num % 10) as u8;
+                num /= 10;
+            }
+
+            core::str::from_utf8_unchecked(&BUFFER[end..MAX_DIGITS])
+        }
     }
 }
 
@@ -114,7 +132,9 @@ fn memset(buf: *mut c_void, c: u8, n: usize) {
 
 fn kernel_main() -> ! {
     printf!("thing", "thang", "thangin", "thung");
-    let printf_butt_ugly("Put that %s away");
+    //let input: &str = "test";
+    let number: u64 = 12345;
+    printf_butt_ugly("Put that %s away", &mut [&number]);
     println("peepee");
     println("poopoo");
     print("Hello, World!\n");
