@@ -1,7 +1,14 @@
 #![no_main]
 #![no_std]
 
-use core::{any::Any, arch::asm, ffi::c_void, panic::PanicInfo};
+extern crate core;
+use core::{arch::asm, fmt::Display, panic::PanicInfo, sync::atomic::Ordering::Relaxed};
+
+extern crate alloc;
+use alloc::string::{String, ToString};
+use alloc::{boxed::Box, vec, vec::Vec};
+
+mod riker;
 
 extern "C" {
     static mut __bss: u8;
@@ -33,76 +40,47 @@ fn sbi_call(
     }
 }
 
-fn putchar(ch: char) -> Result<u64, u64> {
-    sbi_call(ch as u64, 0, 0, 0, 0, 0, 0, 1)
+fn putchar(ch: char) {
+    let _ = sbi_call(ch as u64, 0, 0, 0, 0, 0, 0, 1);
 }
 
-fn print(text: &str) {
+fn print(text: String) {
     for ch in text.chars() {
-        let _ = putchar(ch);
+        putchar(ch);
     }
 }
 
-fn println(text: &str) {
+fn println(text: String) {
     print(text);
-    let _ = putchar('\n');
+    putchar('\n');
 }
 
-trait Printable {
-    fn stringify(&self) -> &str;
-}
+fn _printf(format: &str, vals: Vec<Box<dyn Display>>) {
+    let mut format_it = format.chars();
+    let mut vals_it = vals.iter();
 
-impl Printable for str {
-    fn stringify(&self) -> &str {
-        return self;
-    }
-}
-
-impl Printable for u64 {
-    fn stringify(&self) -> &str {
-        let thing = "(imagine there's an integer here)";
-        return thing;
-    }
-}
-
-fn printf_butt_ugly(format_str: &str, values: &mut [&impl Printable]) {
-    let mut i = 0;
-    let mut format_chars = format_str.chars();
-
-    loop {
-        match format_chars.next() {
-            None => break,
-            Some(ch) => {
-                if ch == '%' {
-                    match format_chars.next() {
-                        None => break,
-                        Some(_) => {
-                            let value = values[i];
-                            let nice_val = value.stringify();
-                            print(nice_val);
-                            i += 1;
-                        }
-                    }
-                } else {
-                    let _ = putchar(ch);
+    while let Some(ch) = format_it.next() {
+        if ch == '%' {
+            match format_it.next() {
+                None | Some('%') => putchar('%'),
+                Some(next_ch) => {
+                    print(vals_it.next().map_or("<?>".to_string(), |a| a.to_string()));
+                    putchar(next_ch);
                 }
             }
+        } else {
+            putchar(ch);
         }
     }
 }
 
 macro_rules! printf {
-    ($e:expr) => {{
-        print($e);
-    }};
-
-    ($e:expr, $($es:expr),+) => {{
-        printf! { $e }
-        printf! { $($es),+ }
+    ($fmt:literal, $($es:expr),*) => {{
+        _printf($fmt, vec![$(Box::new($es)),*]);
     }};
 }
 
-fn memset(buf: *mut c_void, c: u8, n: usize) {
+fn memset<T>(buf: *mut T, c: u8, n: usize) {
     let p = buf as *mut u8;
 
     unsafe {
@@ -113,11 +91,17 @@ fn memset(buf: *mut c_void, c: u8, n: usize) {
 }
 
 fn kernel_main() -> ! {
-    printf!("thing", "thang", "thangin", "thung");
-    let printf_butt_ugly("Put that %s away");
-    println("peepee");
-    println("poopoo");
-    print("Hello, World!\n");
+    printf!(
+        "Heap space before: %\n",
+        riker::ALLOC.remaining.load(Relaxed)
+    );
+
+    printf!("Hello, % and %! % %\n", "Evan", "Luke", 123);
+
+    printf!(
+        "Heap space after: %\n",
+        riker::ALLOC.remaining.load(Relaxed)
+    );
 
     unsafe {
         asm!("wfi");
@@ -130,9 +114,12 @@ fn kernel_main() -> ! {
 #[link_section = ".text.boot"]
 pub extern "C" fn _start() -> ! {
     unsafe {
+        // Initialize the stack pointer
         asm!("mv sp, {stack_top}", stack_top = in(reg) &raw const __stack_top);
+
+        // Initialize .bss to zeros
         let u8_count = (&raw const __bss_end).offset_from(&raw const __bss);
-        memset(__bss as *mut c_void, 0, u8_count as usize);
+        memset(&raw mut __bss, 0, u8_count as usize);
     }
 
     kernel_main();
