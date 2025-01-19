@@ -19,7 +19,7 @@ const ASSIGNMENT_COUNT: usize = 512;
 // A very basic allocator
 pub struct Riker {
     arena: UnsafeCell<[u8; ARENA_SIZE]>,
-    assignments: UnsafeCell<[Assignment; ASSIGNMENT_COUNT]>,
+    records: UnsafeCell<[Assignment; ASSIGNMENT_COUNT]>,
 }
 
 // A record of a memory assignment
@@ -39,7 +39,7 @@ impl Riker {
 
         for i in 0..ASSIGNMENT_COUNT {
             unsafe {
-                let assignment = self.assignments.get().cast::<Assignment>().add(i);
+                let assignment = self.records.get().cast::<Assignment>().add(i);
                 let next_ptr = (*assignment).ptr as *mut u8;
 
                 if !next_ptr.is_null() {
@@ -69,38 +69,38 @@ unsafe impl GlobalAlloc for Riker {
             return null_mut();
         }
 
-        let mut prev_assignment_end = self.arena.get().cast::<u8>();
+        let mut prev_record_end = self.arena.get().cast::<u8>();
 
         // Iterate through each assignment record
-        'record: for i in 0..ASSIGNMENT_COUNT {
-            let next_assignment = self.assignments.get().cast::<Assignment>().add(i);
-            let next_ptr = (*next_assignment).ptr as *mut u8;
+        let mut next_idx = 0;
+        'outer: while next_idx < ASSIGNMENT_COUNT {
+            let next_record = self.records.get().cast::<Assignment>().add(next_idx);
+            let next_ptr = (*next_record).ptr as *mut u8;
 
             if next_ptr.is_null() {
                 // If we find an empty assignment record, see if we can allocate there
-                let align_offset = prev_assignment_end.align_offset(align);
+                let align_offset = prev_record_end.align_offset(align);
                 let effective_size = size + align_offset;
 
                 // We need to find the next non-empty assignment record
-                for j in i..ASSIGNMENT_COUNT {
-                    let valid_assignment = self.assignments.get().cast::<Assignment>().add(j);
-                    let valid_ptr = (*valid_assignment).ptr as *mut u8;
+                for valid_idx in next_idx..ASSIGNMENT_COUNT {
+                    let valid_record = self.records.get().cast::<Assignment>().add(valid_idx);
+                    let valid_ptr = (*valid_record).ptr as *mut u8;
 
                     // This is the next non-empty assignment record
                     if !valid_ptr.is_null() {
-                        let available = valid_ptr.byte_offset_from(prev_assignment_end) as usize;
+                        let available = valid_ptr.byte_offset_from(prev_record_end) as usize;
 
                         // We can allocate here
                         if available >= effective_size {
-                            let assignment = self.assignments.get().cast::<Assignment>().add(j);
-                            let ptr = prev_assignment_end.add(align_offset);
-                            *assignment = Assignment { ptr, size };
+                            let new_record = self.records.get().cast::<Assignment>().add(valid_idx);
+                            let ptr = prev_record_end.add(align_offset);
+                            *new_record = Assignment { ptr, size };
                             return ptr;
                         }
 
-                        // TODO: A future improvement is i can skip ahead to j here
-
-                        continue 'record;
+                        next_idx = valid_idx;
+                        continue 'outer;
                     }
                 }
 
@@ -111,13 +111,13 @@ unsafe impl GlobalAlloc for Riker {
                     .get()
                     .cast::<u8>()
                     .add(ARENA_SIZE)
-                    .byte_offset_from(prev_assignment_end) as usize;
+                    .byte_offset_from(prev_record_end) as usize;
 
                 // We can allocate here
                 if available >= effective_size {
-                    let assignment = self.assignments.get().cast::<Assignment>().add(i);
-                    let ptr = prev_assignment_end.add(align_offset);
-                    *assignment = Assignment { ptr, size };
+                    let new_record = self.records.get().cast::<Assignment>().add(next_idx);
+                    let ptr = prev_record_end.add(align_offset);
+                    *new_record = Assignment { ptr, size };
                     return ptr;
                 }
 
@@ -125,7 +125,8 @@ unsafe impl GlobalAlloc for Riker {
                 return null_mut();
             } else {
                 // If we find a non-empty assignment record, record its index and end address.
-                prev_assignment_end = next_ptr.byte_add((*next_assignment).size);
+                prev_record_end = next_ptr.byte_add((*next_record).size);
+                next_idx += 1;
             }
         }
 
@@ -135,7 +136,7 @@ unsafe impl GlobalAlloc for Riker {
 
     unsafe fn dealloc(&self, ptr: *mut u8, _layout: core::alloc::Layout) {
         for i in 0..ASSIGNMENT_COUNT {
-            let assignment = self.assignments.get().cast::<Assignment>().add(i);
+            let assignment = self.records.get().cast::<Assignment>().add(i);
             let next_ptr = (*assignment).ptr as *mut u8;
 
             if next_ptr == ptr {
@@ -150,7 +151,7 @@ unsafe impl GlobalAlloc for Riker {
 #[global_allocator]
 pub static ALLOC: Riker = Riker {
     arena: UnsafeCell::new([0x55; ARENA_SIZE]),
-    assignments: UnsafeCell::new(
+    records: UnsafeCell::new(
         [Assignment {
             ptr: null(),
             size: 0,
