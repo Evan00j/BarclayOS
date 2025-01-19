@@ -2,13 +2,15 @@
 #![no_std]
 
 extern crate core;
-use core::{arch::asm, fmt::Display, panic::PanicInfo, sync::atomic::Ordering::Relaxed};
+use core::{arch::asm, fmt::Display, panic::PanicInfo};
 
 extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::{boxed::Box, vec, vec::Vec};
 
+mod debug;
 mod riker;
+mod sbi;
 
 extern "C" {
     static mut __bss: u8;
@@ -16,32 +18,8 @@ extern "C" {
     static mut __stack_top: u8;
 }
 
-fn sbi_call(
-    arg0: u64,
-    arg1: u64,
-    arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-    fid: u64,
-    eid: u64,
-) -> Result<u64, u64> {
-    let mut a0 = arg0;
-    let mut a1 = arg1;
-
-    unsafe {
-        asm!("ecall", inlateout("a0") a0, inlateout("a1") a1, in("a2") arg2, in("a3") arg3, in("a4") arg4, in("a5") arg5, in("a6") fid, in("a7") eid);
-
-        if a0 == 0 {
-            return Ok(a1);
-        }
-
-        Err(a0)
-    }
-}
-
 fn putchar(ch: char) {
-    let _ = sbi_call(ch as u64, 0, 0, 0, 0, 0, 0, 1);
+    let _ = sbi::ecall(ch as u64, 0, 0, 0, 0, 0, 0, 1);
 }
 
 fn print(text: String) {
@@ -91,17 +69,9 @@ fn memset<T>(buf: *mut T, c: u8, n: usize) {
 }
 
 fn kernel_main() -> ! {
-    printf!(
-        "Heap space before: %\n",
-        riker::ALLOC.remaining.load(Relaxed)
-    );
-
+    printf!("Heap space before: %\n", riker::ALLOC.remaining());
     printf!("Hello, % and %! % %\n", "Evan", "Luke", 123);
-
-    printf!(
-        "Heap space after: %\n",
-        riker::ALLOC.remaining.load(Relaxed)
-    );
+    printf!("Heap space after: %\n", riker::ALLOC.remaining());
 
     unsafe {
         asm!("wfi");
