@@ -6,7 +6,7 @@ pub fn putchar(ch: char) {
 
 pub fn print(text: &str) {
     for ch in text.chars() {
-        let _ = sbi::ecall(ch as u64, 0, 0, 0, 0, 0, 0, 1);
+        putchar(ch);
     }
 }
 
