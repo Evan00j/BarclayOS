@@ -7,10 +7,12 @@ use core::{arch::asm, fmt::Display, panic::PanicInfo};
 extern crate alloc;
 use alloc::string::{String, ToString};
 use alloc::{boxed::Box, vec, vec::Vec};
+use static_print::Printable;
 
 mod debug;
 mod riker;
 mod sbi;
+mod static_print;
 
 extern "C" {
     static mut __bss: u8;
@@ -18,19 +20,15 @@ extern "C" {
     static mut __stack_top: u8;
 }
 
-fn putchar(ch: char) {
-    let _ = sbi::ecall(ch as u64, 0, 0, 0, 0, 0, 0, 1);
-}
-
 fn print(text: String) {
     for ch in text.chars() {
-        putchar(ch);
+        debug::putchar(ch);
     }
 }
 
 fn println(text: String) {
     print(text);
-    putchar('\n');
+    debug::putchar('\n');
 }
 
 fn _printf(format: &str, vals: Vec<Box<dyn Display>>) {
@@ -40,14 +38,14 @@ fn _printf(format: &str, vals: Vec<Box<dyn Display>>) {
     while let Some(ch) = format_it.next() {
         if ch == '%' {
             match format_it.next() {
-                None | Some('%') => putchar('%'),
+                None | Some('%') => debug::putchar('%'),
                 Some(next_ch) => {
                     print(vals_it.next().map_or("<?>".to_string(), |a| a.to_string()));
-                    putchar(next_ch);
+                    debug::putchar(next_ch);
                 }
             }
         } else {
-            putchar(ch);
+            debug::putchar(ch);
         }
     }
 }
@@ -69,6 +67,7 @@ fn memset<T>(buf: *mut T, c: u8, n: usize) {
 }
 
 fn kernel_main() -> ! {
+    debug::print(123u64.stringify());
     printf!("Heap space before: %\n", riker::ALLOC.remaining());
     printf!("Hello, % and %! % %\n", "Evan", "Luke", 123);
     printf!("Heap space after: %\n", riker::ALLOC.remaining());
